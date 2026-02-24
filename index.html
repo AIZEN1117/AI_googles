@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Advanced Smart Goggles</title>
+
+  <!-- AI -->
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
+
+  <style>
+    body {
+      background: black;
+      color: white;
+      text-align: center;
+      font-family: Arial;
+    }
+
+    video, canvas {
+      border: 2px solid cyan;
+      margin-top: 10px;
+    }
+
+    button {
+      padding: 10px 20px;
+      margin: 5px;
+      cursor: pointer;
+    }
+  </style>
+</head>
+
+<body>
+
+<h2>🧠 Advanced Smart Goggles</h2>
+<p id="status">Loading AI...</p>
+
+<button onclick="start()">Start</button>
+<button onclick="stop()">Stop</button>
+
+<br>
+<video id="video" width="320" height="240" autoplay muted playsinline></video>
+<canvas id="canvas" width="320" height="240"></canvas>
+
+<script>
+let model;
+let stream;
+let running = false;
+let lastSpoken = "";
+let recognition;
+
+// Load AI
+async function loadAI() {
+  model = await cocoSsd.load();
+  document.getElementById("status").innerText = "AI Ready ✅";
+}
+loadAI();
+
+// Start Camera
+async function start() {
+  stream = await navigator.mediaDevices.getUserMedia({ video: true });
+  document.getElementById("video").srcObject = stream;
+  running = true;
+  detect();
+  startVoiceControl();
+}
+
+// Stop
+function stop() {
+  running = false;
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  document.getElementById("status").innerText = "Stopped";
+}
+
+// Detection
+async function detect() {
+  if (!running) return;
+
+  const video = document.getElementById("video");
+  const canvas = document.getElementById("canvas");
+  const ctx = canvas.getContext("2d");
+
+  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+  const predictions = await model.detect(video);
+
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.drawImage(video, 0, 0);
+
+  let message = "Path clear";
+
+  predictions.forEach(pred => {
+    const [x, y, width, height] = pred.bbox;
+
+    // Draw box
+    ctx.strokeStyle = "red";
+    ctx.strokeRect(x, y, width, height);
+    ctx.fillStyle = "red";
+    ctx.fillText(pred.class, x, y);
+
+    // Direction logic
+    if (x < 100) {
+      message = "Obstacle on left: " + pred.class;
+    } else if (x > 200) {
+      message = "Obstacle on right: " + pred.class;
+    } else {
+      message = "Obstacle ahead: " + pred.class;
+    }
+  });
+
+  document.getElementById("status").innerText = message;
+  speak(message);
+
+  setTimeout(detect, 1500);
+}
+
+// Speak function (no spam)
+function speak(text) {
+  if (text === lastSpoken) return;
+  lastSpoken = text;
+
+  const speech = new SpeechSynthesisUtterance(text);
+  speech.rate = 1;
+  window.speechSynthesis.cancel();
+  window.speechSynthesis.speak(speech);
+}
+
+// Voice control
+function startVoiceControl() {
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+  if (!SpeechRecognition) {
+    console.log("Voice not supported");
+    return;
+  }
+
+  recognition = new SpeechRecognition();
+  recognition.continuous = true;
+
+  recognition.onresult = function(event) {
+    const command = event.results[event.results.length - 1][0].transcript.trim().toLowerCase();
+
+    console.log("Voice:", command);
+
+    if (command.includes("start")) {
+      start();
+    }
+
+    if (command.includes("stop")) {
+      stop();
+    }
+  };
+
+  recognition.start();
+}
+</script>
+
+</body>
+</html>
