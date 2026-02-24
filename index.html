@@ -45,7 +45,7 @@ let model;
 let stream;
 let running = false;
 let lastSpoken = "";
-let recognition;
+let lastDirection = "";
 
 // Load AI
 async function loadAI() {
@@ -56,11 +56,14 @@ loadAI();
 
 // Start Camera
 async function start() {
-  stream = await navigator.mediaDevices.getUserMedia({ video: true });
-  document.getElementById("video").srcObject = stream;
-  running = true;
-  detect();
-  startVoiceControl();
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ video: true });
+    document.getElementById("video").srcObject = stream;
+    running = true;
+    detect();
+  } catch (e) {
+    alert("Camera error: " + e.message);
+  }
 }
 
 // Stop
@@ -85,71 +88,58 @@ async function detect() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   ctx.drawImage(video, 0, 0);
 
-  let message = "Path clear";
+  if (predictions.length === 0) {
+    updateMessage("Path clear");
+  } else {
+    // 🔥 Pick biggest object (closest)
+    let biggest = predictions.reduce((prev, curr) => {
+      return (curr.bbox[2] * curr.bbox[3] > prev.bbox[2] * prev.bbox[3]) ? curr : prev;
+    });
 
-  predictions.forEach(pred => {
-    const [x, y, width, height] = pred.bbox;
+    const [x, y, w, h] = biggest.bbox;
+    const centerX = x + w / 2;
+
+    let direction = "";
+
+    if (centerX < canvas.width * 0.33) {
+      direction = "left";
+    } else if (centerX > canvas.width * 0.66) {
+      direction = "right";
+    } else {
+      direction = "front";
+    }
 
     // Draw box
     ctx.strokeStyle = "red";
-    ctx.strokeRect(x, y, width, height);
+    ctx.lineWidth = 3;
+    ctx.strokeRect(x, y, w, h);
     ctx.fillStyle = "red";
-    ctx.fillText(pred.class, x, y);
+    ctx.fillText(biggest.class, x, y - 5);
 
-    // Direction logic
-    if (x < 100) {
-      message = "Obstacle on left: " + pred.class;
-    } else if (x > 200) {
-      message = "Obstacle on right: " + pred.class;
-    } else {
-      message = "Obstacle ahead: " + pred.class;
-    }
-  });
+    let message = `Obstacle ${direction}: ${biggest.class}`;
+    updateMessage(message, direction);
+  }
 
-  document.getElementById("status").innerText = message;
-  speak(message);
-
-  setTimeout(detect, 1500);
+  setTimeout(detect, 1200);
 }
 
-// Speak function (no spam)
-function speak(text) {
-  if (text === lastSpoken) return;
-  lastSpoken = text;
+// Stable speech
+function updateMessage(text, direction="") {
+  document.getElementById("status").innerText = text;
 
+  // Speak only if direction changes
+  if (direction !== lastDirection) {
+    speak(text);
+    lastDirection = direction;
+  }
+}
+
+// Speak
+function speak(text) {
   const speech = new SpeechSynthesisUtterance(text);
   speech.rate = 1;
   window.speechSynthesis.cancel();
   window.speechSynthesis.speak(speech);
-}
-
-// Voice control
-function startVoiceControl() {
-  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-
-  if (!SpeechRecognition) {
-    console.log("Voice not supported");
-    return;
-  }
-
-  recognition = new SpeechRecognition();
-  recognition.continuous = true;
-
-  recognition.onresult = function(event) {
-    const command = event.results[event.results.length - 1][0].transcript.trim().toLowerCase();
-
-    console.log("Voice:", command);
-
-    if (command.includes("start")) {
-      start();
-    }
-
-    if (command.includes("stop")) {
-      stop();
-    }
-  };
-
-  recognition.start();
 }
 </script>
 
